@@ -1,0 +1,796 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ship Voyage Simulation Game</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --radar-bg: #0a0a0a;
+            --radar-green: #00ff41;
+            --radar-green-dark: #008a23;
+            --radar-grid: rgba(0, 255, 65, 0.1);
+            --radar-text: #E0E0E0;
+        }
+
+        html, body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            background-color: var(--radar-bg);
+        }
+
+        body {
+            font-family: 'Roboto Mono', monospace;
+            color: var(--radar-text);
+            overflow: hidden;
+        }
+        
+        #game-wrapper {
+            position: relative;
+            width: 100%;
+            height: 100%;
+        }
+
+        #map-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            background-color: var(--radar-bg);
+            background-image:
+                linear-gradient(var(--radar-grid) 1px, transparent 1px),
+                linear-gradient(90deg, var(--radar-grid) 1px, transparent 1px);
+            background-size: 40px 40px;
+            overflow: hidden;
+        }
+
+        #radar-sweep {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 200vmax;
+            height: 200vmax;
+            background: conic-gradient(from 0deg, transparent 0%, transparent 260deg, var(--radar-green-dark) 270deg, transparent 280deg, transparent 360deg);
+            animation: sweep 4s linear infinite;
+            transform-origin: center center;
+            opacity: 0.3;
+            pointer-events: none;
+        }
+
+        @keyframes sweep {
+            from { transform: translate(-50%, -50%) rotate(0deg); }
+            to { transform: translate(-50%, -50%) rotate(360deg); }
+        }
+
+        .port, .chokepoint {
+            position: absolute;
+            transform: translate(-50%, -50%);
+            border-radius: 50%;
+            cursor: pointer;
+            transition: all 0.2s ease-in-out;
+            z-index: 10;
+        }
+
+        .port {
+            width: 12px;
+            height: 12px;
+            background-color: var(--radar-green);
+            border: 2px solid var(--radar-bg);
+            box-shadow: 0 0 8px var(--radar-green);
+        }
+
+        .port:hover {
+            transform: translate(-50%, -50%) scale(1.5);
+        }
+        
+        .port .port-label {
+            display: none;
+            position: absolute;
+            bottom: 120%;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: rgba(0,0,0,0.8);
+            color: var(--radar-green);
+            padding: 4px 8px;
+            border-radius: 4px;
+            white-space: nowrap;
+            font-size: 12px;
+        }
+
+        .port:hover .port-label {
+            display: block;
+        }
+
+        .chokepoint {
+            width: 8px;
+            height: 8px;
+            background-color: var(--radar-green-dark);
+            box-shadow: 0 0 6px var(--radar-green-dark);
+        }
+
+        .ship {
+            position: absolute;
+            width: 24px;
+            height: 24px;
+            background-image: url('https://assets.co.dev/7255724b-bc1f-459e-ba39-202e9ec521c6/image-03e3f06.png');
+            background-size: contain;
+            background-repeat: no-repeat;
+            transform-origin: center center;
+            transition: top 1s linear, left 1s linear;
+            z-index: 20;
+            cursor: pointer;
+        }
+        
+        .ship-dot {
+            position: absolute;
+            top: -4px;
+            right: -4px;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            border: 1px solid black;
+        }
+        
+        .wake {
+            position: absolute;
+            width: 2px;
+            height: 10px;
+            background: linear-gradient(to top, rgba(0, 255, 65, 0.3), transparent);
+            opacity: 0;
+            transform-origin: bottom center;
+            z-index: 19;
+        }
+
+        .ship.moving .wake {
+            animation: fade-out 2s linear forwards;
+        }
+
+        @keyframes fade-out {
+            0% { opacity: 1; transform: scaleY(1); }
+            100% { opacity: 0; transform: scaleY(0); }
+        }
+
+        .ui-panel {
+            position: fixed;
+            background-color: rgba(0, 20, 0, 0.85);
+            border: 1px solid var(--radar-green-dark);
+            border-radius: 8px;
+            padding: 1rem;
+            backdrop-filter: blur(5px);
+            box-shadow: 0 0 15px rgba(0, 255, 65, 0.2);
+            font-size: 14px;
+            z-index: 50;
+        }
+
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.85);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+            opacity: 1 !important;
+        }
+
+        .modal-content {
+            background-color: var(--radar-bg);
+            border: 1px solid var(--radar-green);
+            max-width: 90vw;
+            width: 500px;
+            max-height: 90vh;
+            overflow-y: auto;
+            opacity: 1;
+        }
+        
+        #loading-screen {
+             z-index: 200;
+        }
+        
+        @keyframes blink {
+            50% { opacity: 0.5; }
+        }
+        .blinking-cursor {
+            animation: blink 1s step-end infinite;
+        }
+
+        .btn {
+            font-weight: bold;
+            padding: 0.5rem 1rem;
+            border-radius: 4px;
+            border: none;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            text-align: center;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+        }
+        .btn-primary {
+            background-color: var(--radar-green);
+            color: var(--radar-bg);
+        }
+        .btn-primary:hover:not(:disabled) {
+            background-color: #fff;
+            box-shadow: 0 0 10px var(--radar-green);
+        }
+        .btn-secondary {
+            background-color: transparent;
+            color: var(--radar-green);
+            border: 1px solid var(--radar-green);
+        }
+        .btn-secondary:hover:not(:disabled) {
+            background-color: var(--radar-green);
+            color: var(--radar-bg);
+        }
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        input, select {
+            background-color: rgba(0,0,0,0.5);
+            border: 1px solid var(--radar-green-dark);
+            color: var(--radar-text);
+            padding: 0.5rem;
+            border-radius: 4px;
+        }
+        .form-group {
+            margin-bottom: 1rem;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 0.25rem;
+            font-size: 0.875rem;
+            color: var(--radar-green);
+        }
+    </style>
+</head>
+<body>
+<div id="game-wrapper">
+    <div id="loading-screen" class="modal">
+        <div class="text-center">
+            <h2 class="text-2xl font-bold text-green-400">Loading Game...</h2>
+            <p class="text-green-400">Please wait<span class="blinking-cursor">...</span></p>
+        </div>
+    </div>
+
+    <div id="map-container" class="hidden">
+        <div id="radar-sweep"></div>
+        <!-- Ports, chokepoints, and ships will be dynamically added here -->
+    </div>
+
+    <!-- UI Panels -->
+    <div id="ui-container" class="hidden">
+        <div id="money-panel" class="ui-panel top-4 right-4 text-right">
+            <h2 class="text-sm font-bold text-green-400" id="company-name-display">My Company</h2>
+            <p class="text-xl font-bold" id="money-display">$1,000,000</p>
+        </div>
+
+        <div id="fleet-panel" class="ui-panel bottom-20 left-4 w-[calc(100%-2rem)] sm:w-80 sm:bottom-4">
+            <h3 class="font-bold text-green-400 border-b border-green-700 pb-2 mb-2">Fleet Status</h3>
+            <div id="fleet-list" class="max-h-24 sm:max-h-40 overflow-y-auto pr-2">
+                <p>No ships purchased.</p>
+            </div>
+        </div>
+        
+        <div id="controls-panel" class="ui-panel bottom-0 left-0 right-0 w-full rounded-none border-t border-l-0 border-r-0 border-b-0 border-green-700 p-2 flex flex-row items-center justify-around sm:bottom-4 sm:right-4 sm:left-auto sm:w-auto sm:flex-col sm:space-y-2 sm:rounded-lg sm:border">
+            <button id="contracts-btn" class="btn btn-primary text-xs p-2 sm:text-sm sm:px-4">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M10.854 7.146a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708 0l-1.5-1.5a.5.5 0 1 1 .708-.708L7.5 9.793l2.646-2.647a.5.5 0 0 1 .708 0z"/><path d="M3.5 0a.5.5 0 0 1 .5.5V1h8V.5a.5.5 0 0 1 1 0V1h1a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2h1V.5a.5.5 0 0 1 .5-.5zM2 2a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V3a1 1 0 0 0-1-1H2z"/><path d="M2.5 4a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5H3a.5.5 0 0 1-.5-.5V4z"/></svg>
+                <span class="hidden sm:inline">Contracts</span>
+            </button>
+            <button id="shipyard-btn" class="btn btn-primary text-xs p-2 sm:text-sm sm:px-4">
+                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M.5 1a.5.5 0 0 0 0 1h1.11l.401 1.607 1.498 7.985A.5.5 0 0 0 4 12h1a2 2 0 1 0 0 4 2 2 0 0 0 0-4h7a2 2 0 1 0 0 4 2 2 0 0 0 0-4h1a.5.5 0 0 0 .491-.408l1.5-8A.5.5 0 0 0 14.5 3H2.89l-.405-1.621A.5.5 0 0 0 2 1H.5zM6 14a1 1 0 1 1-2 0 1 1 0 0 1 2 0zm7 0a1 1 0 1 1-2 0 1 1 0 0 1 2 0zM9 5.5V7h1.5a.5.5 0 0 1 0 1H9v1.5a.5.5 0 0 1-1 0V8H6.5a.5.5 0 0 1 0-1H8V5.5a.5.5 0 0 1 1 0z"/></svg>
+                <span class="hidden sm:inline">Shipyard</span>
+            </button>
+            <button id="save-game-btn" class="btn btn-secondary text-xs p-2 sm:text-sm sm:px-4">
+                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M2 1a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1H9.5a1 1 0 0 0-1 1v4.5h2a.5.5 0 0 1 .354.854l-2.5 2.5a.5.5 0 0 1-.708 0l-2.5-2.5A.5.5 0 0 1 5.5 6.5h2V2a2 2 0 0 1 2-2H14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V2a2 2 0 0 1 2-2h2.5a.5.5 0 0 1 0 1H2z"/></svg>
+                <span class="hidden sm:inline">Save</span>
+            </button>
+            <button id="reset-game-btn" class="btn btn-secondary text-xs p-2 sm:text-sm sm:px-4">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"/><path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/></svg>
+                 <span class="hidden sm:inline">Reset</span>
+            </button>
+            <a href="https://www.shipsdnaportal.com" target="_top" class="btn btn-secondary text-xs p-2 sm:text-sm sm:px-4">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M6.5 14.5v-3.505c0-.245.25-.495.5-.495h2c.25 0 .5.25.5.5v3.5a.5.5 0 0 0 .5.5h4a.5.5 0 0 0 .5-.5v-7a.5.5 0 0 0-.146-.354L13 5.793V2.5a.5.5 0 0 0-.5-.5h-1a.5.5 0 0 0-.5.5v1.293L8.354 1.146a.5.5 0 0 0-.708 0l-6 6A.5.5 0 0 0 1.5 7.5v7a.5.5 0 0 0 .5.5h4a.5.5 0 0 0 .5-.5z"/></svg>
+                <span class="hidden sm:inline">Home</span>
+            </a>
+        </div>
+
+        <div id="weather-panel" class="ui-panel top-4 left-4">
+            <h3 class="font-bold text-green-400 text-sm">Weather</h3>
+            <p id="weather-display">Clear Skies</p>
+        </div>
+
+        <div id="voyage-info-panel" class="ui-panel top-1/2 left-4 -translate-y-1/2 w-[calc(100%-2rem)] sm:w-80 hidden">
+             <div class="flex justify-between items-center border-b border-green-700 pb-2 mb-2">
+                <h3 class="font-bold text-green-400">Active Voyage</h3>
+                <button id="close-voyage-info-btn" class="text-xl font-bold">&times;</button>
+            </div>
+            <div id="voyage-info-content"></div>
+        </div>
+    </div>
+    <!-- Modals -->
+    <div id="company-creation-modal" class="modal hidden">
+        <div class="modal-content ui-panel p-6">
+            <h2 class="text-2xl font-bold text-green-400 mb-4">Create Your Shipping Company</h2>
+             <div class="form-group">
+                <label for="company-name">Company Name</label>
+                <input type="text" id="company-name" class="w-full" value="Global Maritime">
+            </div>
+             <div class="form-group">
+                <label for="company-location">Headquarters Location</label>
+                <input type="text" id="company-location" class="w-full" placeholder="e.g., Singapore">
+            </div>
+             <div class="form-group">
+                <label for="service-type">Service Type</label>
+                <input type="text" id="service-type" class="w-full" placeholder="e.g., Container Shipping">
+            </div>
+             <div class="form-group">
+                <label for="user-type">Are you a ShipsDNA Portal Subscriber?</label>
+                <select id="user-type" class="w-full">
+                    <option value="subscriber">Yes (Starts with $1,000,000)</option>
+                    <option value="visitor">No (Starts with $100,000)</option>
+                </select>
+            </div>
+            <button id="start-game-btn" class="btn btn-primary w-full">Found Company</button>
+        </div>
+    </div>
+
+    <div id="contracts-modal" class="modal hidden">
+        <div class="modal-content ui-panel p-6 space-y-4">
+            <div class="flex justify-between items-center">
+                <h2 class="text-2xl font-bold text-green-400">Available Contracts</h2>
+                <button class="close-modal-btn font-bold text-2xl">&times;</button>
+            </div>
+            <div id="contracts-list" class="space-y-3 max-h-96 overflow-y-auto"></div>
+            <button id="refresh-contracts-btn" class="btn btn-primary w-full">
+                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"/><path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/></svg>
+                Refresh Contracts
+            </button>
+        </div>
+    </div>
+
+    <div id="shipyard-modal" class="modal hidden">
+         <div class="modal-content ui-panel p-6 space-y-4">
+            <div class="flex justify-between items-center">
+                <h2 class="text-2xl font-bold text-green-400">Shipyard</h2>
+                <button class="close-modal-btn font-bold text-2xl">&times;</button>
+            </div>
+            <div id="shipyard-list" class="space-y-3 max-h-96 overflow-y-auto"></div>
+        </div>
+    </div>
+
+    <div id="message-box" class="ui-panel hidden z-[110] bottom-1/2 left-1/2 -translate-x-1/2 translate-y-1/2">
+        <p id="message-text"></p>
+    </div>
+</div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // --- AUDIO ---
+            const clickSound = new Audio("data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YU"+Array(1e3).join("121213131414151516161717181819191a1a1b1b1c1c1d1d1e1e1f1f20202121222223232424252526262727282829292a2a2b2b2c2c2d2d2e2e2f2f30303131323233333434353536363737383839393a3a3b3b3c3c3d3d3e3e3f3f40404141424243434444454546464747484849494a4a4b4b4c4c4d4d4e4e4f4f50505151525253535454555556565757585859595a5a5b5b5c5c5d5d5e5e5f5f60606161626263636464656566666767686869696a6a6b6b6c6c6d6d6e6e6f6f70707171727273737474757576767777787879797a7a7b7b7c7c7d7d7e7e7f7f80808181828283838484858586868787888889898a8a8b8b8c8c8d8d8e8e8f8f90909191929293939494959596969797989899999a9a9b9b9c9c9d9d9e9e9f9fa0a0a1a1a2a2a3a3a4a4a5a5a6a6a7a7a8a8a9a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff"));
+            
+            // --- GAME DATA ---
+            const ports = {
+                'New York': { x: 28, y: 42 }, 'London': { x: 49, y: 35 }, 'Rotterdam': { x: 51, y: 34 },
+                'Singapore': { x: 79, y: 65 }, 'Shanghai': { x: 86, y: 48 }, 'Los Angeles': { x: 18, y: 46 },
+                'Sydney': { x: 92, y: 88 }, 'Panama Canal': { x: 26, y: 60, isChoke: true },
+                'Suez Canal': { x: 58, y: 49, isChoke: true }, 'Strait of Malacca': { x: 78, y: 64, isChoke: true },
+                'Cape of Good Hope': { x: 54, y: 88, isChoke: true },
+            };
+            const shipTypes = {
+                'Tug Boat': { cost: 50000, speed: 10, capacity: 10, color: '#ff0000' }, 'Fishing Vessel': { cost: 150000, speed: 12, capacity: 50, color: '#ff7f00' },
+                'Passenger Ferry': { cost: 1000000, speed: 20, capacity: 200, color: '#ffff00' }, 'Cargo Ship': { cost: 20000000, speed: 15, capacity: 1000, color: '#00ff00' },
+                'Container Ship': { cost: 100000000, speed: 22, capacity: 5000, color: '#0000ff' }, 'Oil Tanker': { cost: 120000000, speed: 18, capacity: 10000, color: '#4b0082' },
+                'Bulk Carrier': { cost: 80000000, speed: 16, capacity: 8000, color: '#8f00ff' }, 'Cruise Ship': { cost: 200000000, speed: 25, capacity: 3000, color: '#ffffff' },
+            };
+            const routes = {
+                'New York-London': ['New York', 'London'], 'Singapore-Rotterdam': ['Singapore', 'Strait of Malacca', 'Suez Canal', 'Rotterdam'],
+                'Los Angeles-Shanghai': ['Los Angeles', 'Shanghai'], 'New York-Sydney': ['New York', 'Cape of Good Hope', 'Sydney'],
+            };
+
+            // --- GAME STATE ---
+            let gameState = null;
+            let gameLoopInterval = null;
+
+            // --- DOM ELEMENTS ---
+            const loadingScreen = document.getElementById('loading-screen'); const mapContainer = document.getElementById('map-container'); 
+            const uiContainer = document.getElementById('ui-container'); const moneyDisplay = document.getElementById('money-display');
+            const companyNameDisplay = document.getElementById('company-name-display'); const fleetList = document.getElementById('fleet-list');
+            const weatherDisplay = document.getElementById('weather-display'); const companyCreationModal = document.getElementById('company-creation-modal');
+            const contractsModal = document.getElementById('contracts-modal'); const shipyardModal = document.getElementById('shipyard-modal');
+            const voyageInfoPanel = document.getElementById('voyage-info-panel');
+
+            // --- INITIALIZATION ---
+            function init() {
+                setTimeout(loadGame, 500);
+
+                // Failsafe to prevent getting stuck on loading
+                setTimeout(() => {
+                    if (!loadingScreen.classList.contains('hidden')) {
+                        console.warn("Game load timed out. Forcing new game setup.");
+                        setupNewGame();
+                    }
+                }, 2500);
+            }
+
+            function startGameLoop() {
+                if(gameLoopInterval) clearInterval(gameLoopInterval);
+                gameLoopInterval = setInterval(gameLoop, 1000);
+            }
+
+            // --- MAP & UI ---
+            function drawMap() {
+                mapContainer.querySelectorAll('.port, .chokepoint, .ship').forEach(el => el.remove());
+                for (const name in ports) {
+                    const port = ports[name];
+                    const el = document.createElement('div');
+                    el.className = port.isChoke ? 'chokepoint' : 'port';
+                    el.style.left = `${port.x}%`; el.style.top = `${port.y}%`;
+                    if (!port.isChoke) {
+                         const label = document.createElement('span');
+                         label.className = 'port-label';
+                         label.textContent = name;
+                         el.appendChild(label);
+                    }
+                    mapContainer.appendChild(el);
+                }
+                gameState.fleet.forEach(ship => createShipElement(ship));
+            }
+
+            function updateUI() {
+                moneyDisplay.textContent = `$${gameState.money.toLocaleString()}`;
+                companyNameDisplay.textContent = gameState.company.name;
+                updateFleetList();
+            }
+
+            function updateFleetList() {
+                fleetList.innerHTML = '';
+                if (gameState.fleet.length === 0) {
+                    fleetList.innerHTML = '<p class="opacity-50">No ships purchased.</p>'; return;
+                }
+                gameState.fleet.forEach((ship) => {
+                    const shipEl = document.createElement('div');
+                    shipEl.className = 'text-sm mb-1 cursor-pointer hover:bg-green-900 p-1 rounded';
+                    shipEl.dataset.shipId = ship.id;
+                    const status = ship.onVoyage ? `En route to ${ship.voyage.destination}` : 'Idle';
+                    const progress = ship.onVoyage ? `(${(ship.voyage.progress * 100).toFixed(0)}%)` : '';
+                    shipEl.innerHTML = `<p><span class="font-bold">${ship.name}</span> (${ship.type})</p><p class="text-green-400">${status} ${progress}</p>`;
+                    fleetList.appendChild(shipEl);
+                });
+            }
+
+            function showMessage(text) {
+                const messageBox = document.getElementById('message-box');
+                const messageText = document.getElementById('message-text');
+                messageText.textContent = text;
+                messageBox.classList.remove('hidden');
+                setTimeout(() => { messageBox.classList.add('hidden'); }, 3000);
+            }
+            
+            function showVoyageInfo(shipId) {
+                const ship = gameState.fleet.find(s => s.id == shipId);
+                if(!ship || !ship.onVoyage) {
+                    voyageInfoPanel.classList.add('hidden');
+                    return;
+                }
+                const content = document.getElementById('voyage-info-content');
+                const profit = ship.voyage.freight * (1 - 0.0125);
+                content.innerHTML = `
+                    <p><span class="font-bold text-green-400">Vessel:</span> ${ship.name}</p>
+                    <p><span class="font-bold text-green-400">Route:</span> ${ship.voyage.origin} &rarr; ${ship.voyage.destination}</p>
+                    <p><span class="font-bold text-green-400">Progress:</span> ${(ship.voyage.progress * 100).toFixed(1)}%</p>
+                    <p><span class="font-bold text-green-400">Net Profit:</span> $${profit.toLocaleString()}</p>
+                `;
+                voyageInfoPanel.classList.remove('hidden');
+            }
+
+            // --- GAME LOGIC ---
+            function gameLoop() {
+                gameState.time++;
+                moveShips();
+                updateUI();
+                 const activeVoyageShipId = voyageInfoPanel.dataset.shipId;
+                if (activeVoyageShipId && !voyageInfoPanel.classList.contains('hidden')) {
+                    showVoyageInfo(activeVoyageShipId);
+                }
+            }
+            
+            function updateWeather() {
+                const weathers = ['Clear Skies', 'Light Rain', 'Strong Winds', 'Heavy Storm'];
+                const current = weathers[Math.floor(Math.random() * weathers.length)];
+                weatherDisplay.textContent = current;
+                if(current === 'Heavy Storm') { showMessage('Warning: Heavy storm! Voyages slowed.'); }
+            }
+            
+            function getVoyageTimeMultiplier() {
+                const weather = weatherDisplay.textContent;
+                if(weather === 'Strong Winds') return 1.2;
+                if(weather === 'Heavy Storm') return 1.5;
+                return 1;
+            }
+
+            function setupNewGame() {
+                loadingScreen.classList.add('hidden');
+                companyCreationModal.classList.remove('hidden');
+            }
+
+            function createNewGame() {
+                gameState = {
+                    company: {
+                        name: document.getElementById('company-name').value || 'Global Maritime',
+                        location: document.getElementById('company-location').value || 'Singapore',
+                        serviceType: document.getElementById('service-type').value || 'General Cargo',
+                    },
+                    money: document.getElementById('user-type').value === 'subscriber' ? 1000000 : 100000,
+                    fleet: [], time: 0,
+                };
+                companyCreationModal.classList.add('hidden');
+                runGame();
+                saveGame();
+            }
+            
+            function runGame() {
+                loadingScreen.classList.add('hidden');
+                mapContainer.classList.remove('hidden');
+                uiContainer.classList.remove('hidden');
+                drawMap();
+                updateUI();
+                startGameLoop();
+                updateWeather();
+                setInterval(updateWeather, 30000);
+            }
+
+            // --- CONTRACTS ---
+            function generateContracts() {
+                const contractsList = document.getElementById('contracts-list');
+                contractsList.innerHTML = '';
+                const portNames = Object.keys(ports).filter(p => !ports[p].isChoke);
+                for (let i = 0; i < 5; i++) {
+                    let from = portNames[Math.floor(Math.random() * portNames.length)];
+                    let to;
+                    do { to = portNames[Math.floor(Math.random() * portNames.length)]; } while(from === to);
+                    
+                    const dist = getDistance(ports[from], ports[to]);
+                    const freight = Math.floor(dist * 10000 + Math.random() * 50000);
+                    const contractEl = document.createElement('div');
+                    contractEl.className = 'p-3 rounded border border-green-700 bg-green-900 bg-opacity-30';
+                    contractEl.innerHTML = `
+                        <p class="font-bold">${from} &rarr; ${to}</p>
+                        <p>Freight: <span class="text-green-400">$${freight.toLocaleString()}</span></p>
+                        <div class="mt-2">
+                           <label class="text-xs">Assign Ship:</label>
+                           <select class="assign-ship-select w-full mt-1 text-xs">
+                               <option value="">Select an idle ship</option>
+                               ${gameState.fleet.filter(s => !s.onVoyage).map(s => `<option value="${s.id}">${s.name} (${s.type})</option>`).join('')}
+                           </select>
+                        </div>
+                        <button class="accept-contract-btn btn btn-secondary text-xs mt-2 w-full" data-from="${from}" data-to="${to}" data-freight="${freight}">Accept Contract</button>
+                    `;
+                    contractsList.appendChild(contractEl);
+                }
+            }
+
+            function acceptContract(e) {
+                const button = e.target;
+                const from = button.dataset.from; const to = button.dataset.to;
+                const freight = parseInt(button.dataset.freight);
+                const shipId = button.closest('.p-3').querySelector('.assign-ship-select').value;
+                if (!shipId) { showMessage("Please select a ship."); return; }
+                const ship = gameState.fleet.find(s => s.id == shipId);
+                if (ship && !ship.onVoyage) {
+                    ship.onVoyage = true;
+                    ship.voyage = { origin: from, destination: to, freight, progress: 0, path: findPath(from, to), currentLeg: 0 };
+                    showMessage(`${ship.name} has started its voyage to ${to}!`);
+                    contractsModal.classList.add('hidden');
+                    updateUI();
+                    showVoyageInfo(ship.id);
+                    voyageInfoPanel.dataset.shipId = ship.id;
+                } else { showMessage("Ship not available."); }
+            }
+
+            // --- SHIPYARD ---
+            function populateShipyard() {
+                const shipyardList = document.getElementById('shipyard-list');
+                shipyardList.innerHTML = '';
+                for(const type in shipTypes) {
+                    const shipData = shipTypes[type];
+                    const canAfford = gameState.money >= shipData.cost;
+                    const shipEl = document.createElement('div');
+                    shipEl.className = 'flex justify-between items-center p-2 border border-green-800 rounded';
+                    shipEl.innerHTML = `
+                        <div>
+                            <p class="font-bold">${type}</p>
+                            <p class="text-xs">Speed: ${shipData.speed}kts | Capacity: ${shipData.capacity} units</p>
+                        </div>
+                        <button class="buy-ship-btn btn btn-primary" data-type="${type}" data-cost="${shipData.cost}" ${!canAfford ? 'disabled' : ''}>
+                            Buy: $${shipData.cost.toLocaleString()}
+                        </button>
+                    `;
+                    shipyardList.appendChild(shipEl);
+                }
+            }
+            
+            function buyShip(e) {
+                const type = e.target.dataset.type;
+                const cost = parseInt(e.target.dataset.cost);
+                if (gameState.money >= cost) {
+                    gameState.money -= cost;
+                    const newShip = {
+                        id: Date.now(), name: `${type} #${gameState.fleet.filter(s => s.type === type).length + 1}`,
+                        type, ...shipTypes[type], onVoyage: false, x: ports['London'].x, y: ports['London'].y,
+                        voyage: {}, domElement: null
+                    };
+                    gameState.fleet.push(newShip);
+                    createShipElement(newShip);
+                    showMessage(`You purchased a new ${type}!`);
+                    updateUI();
+                    shipyardModal.classList.add('hidden');
+                } else { showMessage("Not enough funds."); }
+            }
+            
+            function createShipElement(ship) {
+                const el = document.createElement('div'); el.className = 'ship';
+                el.style.left = `${ship.x}%`; el.style.top = `${ship.y}%`;
+                el.dataset.shipId = ship.id;
+                const dot = document.createElement('div'); dot.className = 'ship-dot';
+                dot.style.backgroundColor = ship.color;
+                el.appendChild(dot);
+                mapContainer.appendChild(el);
+                ship.domElement = el;
+            }
+
+            // --- VOYAGE & MOVEMENT ---
+            function findPath(from, to) {
+                const key1 = `${from}-${to}`, key2 = `${to}-${from}`;
+                if(routes[key1]) return routes[key1];
+                if(routes[key2]) return [...routes[key2]].reverse();
+                return [from, to];
+            }
+
+            function moveShips() {
+                gameState.fleet.forEach(ship => {
+                    if (!ship.onVoyage) return;
+                    if (!ship.domElement) createShipElement(ship);
+                    const { voyage } = ship;
+                    if (voyage.progress >= 1) { completeVoyage(ship); return; }
+                    const totalVoyageDist = voyage.path.slice(0, -1).reduce((acc, curr, i) => acc + getDistance(ports[curr], ports[voyage.path[i+1]]), 0);
+                    const distToTravel = (ship.speed * 0.0005) / getVoyageTimeMultiplier();
+                    ship.voyage.progress += distToTravel / totalVoyageDist;
+                    if (ship.voyage.progress >= 1) { ship.voyage.progress = 1; }
+
+                    let distCovered = 0;
+                    let newLeg = 0;
+                    for(let i=0; i < voyage.path.length - 1; i++) {
+                        const legDist = getDistance(ports[voyage.path[i]], ports[voyage.path[i+1]]);
+                        if(ship.voyage.progress * totalVoyageDist < distCovered + legDist) {
+                            newLeg = i; break;
+                        }
+                        distCovered += legDist;
+                    }
+                    ship.voyage.currentLeg = newLeg;
+                    const origin = ports[voyage.path[newLeg]], dest = ports[voyage.path[newLeg+1]];
+                    const legDist = getDistance(origin, dest);
+                    const progressInLeg = (ship.voyage.progress * totalVoyageDist - distCovered) / legDist;
+                    
+                    const newX = origin.x + (dest.x - origin.x) * progressInLeg;
+                    const newY = origin.y + (dest.y - origin.y) * progressInLeg;
+                    const angle = Math.atan2(newY - ship.y, newX - ship.x) * (180 / Math.PI) + 90;
+                    ship.domElement.style.transform = `rotate(${angle}deg)`;
+
+                    ship.x = newX; ship.y = newY;
+                    ship.domElement.style.left = `${ship.x}%`;
+                    ship.domElement.style.top = `${ship.y}%`;
+
+                    if(!ship.domElement.classList.contains('moving')) ship.domElement.classList.add('moving');
+                    const wake = document.createElement('div');
+                    wake.className = 'wake'; wake.style.left = `${ship.x}%`; wake.style.top = `${ship.y}%`;
+                    wake.style.transform = ship.domElement.style.transform;
+                    mapContainer.appendChild(wake);
+                    setTimeout(() => wake.remove(), 2000);
+                });
+            }
+
+            function completeVoyage(ship) {
+                const commission = ship.voyage.freight * 0.0125;
+                const profit = ship.voyage.freight - commission;
+                gameState.money += profit;
+                showMessage(`${ship.name} arrived at ${ship.voyage.destination}. Profit: $${profit.toLocaleString()}`);
+                ship.onVoyage = false;
+                ship.x = ports[ship.voyage.destination].x;
+                ship.y = ports[ship.voyage.destination].y;
+                ship.voyage = {};
+                if(ship.domElement) ship.domElement.classList.remove('moving');
+                updateUI();
+                 if (voyageInfoPanel.dataset.shipId == ship.id) {
+                    voyageInfoPanel.classList.add('hidden');
+                }
+            }
+
+            function getDistance(pos1, pos2) {
+                return Math.sqrt(Math.pow(pos2.x - pos1.x, 2) + Math.pow(pos2.y - pos1.y, 2));
+            }
+
+            // --- SAVE/LOAD ---
+            function saveGame() {
+                try {
+                    const saveState = { ...gameState };
+                    saveState.fleet = saveState.fleet.map(ship => { const { domElement, ...shipData } = ship; return shipData; });
+                    localStorage.setItem('ship_game_save', JSON.stringify(saveState));
+                    showMessage("Game Saved!");
+                } catch (e) { console.error("Could not save game.", e); showMessage("Error: Could not save game."); }
+            }
+
+            function loadGame() {
+                try {
+                    const savedGame = localStorage.getItem('ship_game_save');
+                    if (savedGame) {
+                        gameState = JSON.parse(savedGame);
+                        runGame();
+                    } else {
+                        setupNewGame();
+                    }
+                } catch (e) {
+                    console.error("Could not load game due to an error. Starting new game.", e);
+                    setupNewGame();
+                }
+            }
+
+            function resetGame() {
+                try {
+                    localStorage.removeItem('ship_game_save');
+                    location.reload();
+                } catch (e) { console.error("Could not reset game.", e); showMessage("Error: Could not reset game."); }
+            }
+
+            // --- EVENT LISTENERS ---
+            document.getElementById('start-game-btn').addEventListener('click', createNewGame);
+            document.getElementById('save-game-btn').addEventListener('click', saveGame);
+            document.getElementById('reset-game-btn').addEventListener('click', resetGame);
+            document.getElementById('contracts-btn').addEventListener('click', () => { generateContracts(); contractsModal.classList.remove('hidden'); });
+            document.getElementById('shipyard-btn').addEventListener('click', () => { populateShipyard(); shipyardModal.classList.remove('hidden'); });
+            document.getElementById('refresh-contracts-btn').addEventListener('click', () => { clickSound.play(); generateContracts(); });
+            document.querySelectorAll('.close-modal-btn').forEach(btn => {
+                btn.addEventListener('click', () => { contractsModal.classList.add('hidden'); shipyardModal.classList.add('hidden'); });
+            });
+            document.getElementById('contracts-list').addEventListener('click', e => { if(e.target.classList.contains('accept-contract-btn')) { acceptContract(e); } });
+            document.getElementById('shipyard-list').addEventListener('click', e => { if(e.target.classList.contains('buy-ship-btn')) { buyShip(e); } });
+
+            document.getElementById('close-voyage-info-btn').addEventListener('click', () => {
+                voyageInfoPanel.classList.add('hidden');
+                voyageInfoPanel.dataset.shipId = '';
+            });
+
+            fleetList.addEventListener('click', (e) => {
+                const shipCard = e.target.closest('[data-ship-id]');
+                if (shipCard) {
+                    const shipId = shipCard.dataset.shipId;
+                    showVoyageInfo(shipId);
+                    voyageInfoPanel.dataset.shipId = shipId;
+                }
+            });
+
+            mapContainer.addEventListener('click', (e) => {
+                 if (e.target.classList.contains('ship')) {
+                    const shipId = e.target.dataset.shipId;
+                    showVoyageInfo(shipId);
+                    voyageInfoPanel.dataset.shipId = shipId;
+                }
+            });
+
+            // --- START ---
+            init();
+        });
+    </script>
+</body>
+</html>
+
